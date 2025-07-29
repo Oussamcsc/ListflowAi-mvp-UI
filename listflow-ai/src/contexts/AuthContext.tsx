@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { supabase } from '../supabaseClient';
 
 interface User {
   id: string;
@@ -12,7 +13,7 @@ interface AuthContextType {
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
   signup: (name: string, email: string, password: string) => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
   loginWithGoogle: () => Promise<void>;
   loginWithMicrosoft: () => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
@@ -23,7 +24,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const useAuth = () => {
   const context = useContext(AuthContext);
-  if (context === undefined) {
+  if (!context) {
     throw new Error('useAuth must be used within an AuthProvider');
   }
   return context;
@@ -38,132 +39,120 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // Check for existing session on app load
-    const checkAuth = async () => {
-      try {
-        // TODO: Replace with actual API call
-        const savedUser = localStorage.getItem('user');
-        if (savedUser) {
-          setUser(JSON.parse(savedUser));
-        }
-      } catch (error) {
-        console.error('Auth check failed:', error);
-      } finally {
-        setIsLoading(false);
+    const initializeAuth = async () => {
+      const { data: { session }, error } = await supabase.auth.getSession();
+      if (error) {
+        console.error('Error fetching session:', error);
       }
+      if (session?.user) {
+        const u = session.user;
+        setUser({
+          id: u.id,
+          email: u.email!,
+          name: u.user_metadata?.name || '',
+          isOnboarded: u.user_metadata?.isOnboarded || false,
+        });
+      }
+      setIsLoading(false);
     };
 
-    checkAuth();
+    initializeAuth();
+
+    const { subscription } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        const u = session.user;
+        setUser({
+          id: u.id,
+          email: u.email!,
+          name: u.user_metadata?.name || '',
+          isOnboarded: u.user_metadata?.isOnboarded || false,
+        });
+      } else {
+        setUser(null);
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
   }, []);
 
   const login = async (email: string, password: string) => {
     setIsLoading(true);
-    try {
-      // TODO: Replace with actual API call
-      await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate API call
-      
-      const mockUser: User = {
-        id: '1',
-        email,
-        name: email.split('@')[0],
-        isOnboarded: false,
-      };
-      
-      setUser(mockUser);
-      localStorage.setItem('user', JSON.stringify(mockUser));
-    } catch (error) {
-      throw new Error('Login failed. Please check your credentials.');
-    } finally {
-      setIsLoading(false);
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    setIsLoading(false);
+    if (error) throw error;
+    if (data.user) {
+      const u = data.user;
+      setUser({
+        id: u.id,
+        email: u.email!,
+        name: u.user_metadata?.name || '',
+        isOnboarded: u.user_metadata?.isOnboarded || false,
+      });
     }
   };
 
   const signup = async (name: string, email: string, password: string) => {
     setIsLoading(true);
-    try {
-      // TODO: Replace with actual API call
-      await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate API call
-      
-      const mockUser: User = {
-        id: '1',
-        email,
-        name,
-        isOnboarded: false,
-      };
-      
-      setUser(mockUser);
-      localStorage.setItem('user', JSON.stringify(mockUser));
-    } catch (error) {
-      throw new Error('Signup failed. Please try again.');
-    } finally {
-      setIsLoading(false);
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: { data: { name } },
+    });
+    setIsLoading(false);
+    if (error) throw error;
+    if (data.user) {
+      const u = data.user;
+      setUser({
+        id: u.id,
+        email: u.email!,
+        name: u.user_metadata?.name || name,
+        isOnboarded: u.user_metadata?.isOnboarded || false,
+      });
     }
   };
 
-  const logout = () => {
+  const logout = async () => {
+    setIsLoading(true);
+    const { error } = await supabase.auth.signOut();
+    setIsLoading(false);
+    if (error) console.error('Error signing out:', error);
     setUser(null);
-    localStorage.removeItem('user');
   };
 
   const loginWithGoogle = async () => {
     setIsLoading(true);
-    try {
-      // TODO: Implement Google OAuth
-      await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate OAuth flow
-      
-      const mockUser: User = {
-        id: '1',
-        email: 'user@gmail.com',
-        name: 'Google User',
-        isOnboarded: false,
-      };
-      
-      setUser(mockUser);
-      localStorage.setItem('user', JSON.stringify(mockUser));
-    } catch (error) {
-      throw new Error('Google login failed. Please try again.');
-    } finally {
-      setIsLoading(false);
-    }
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo: window.location.origin },
+    });
+    setIsLoading(false);
+    if (error) throw error;
   };
 
   const loginWithMicrosoft = async () => {
     setIsLoading(true);
-    try {
-      // TODO: Implement Microsoft OAuth
-      await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate OAuth flow
-      
-      const mockUser: User = {
-        id: '1',
-        email: 'user@outlook.com',
-        name: 'Microsoft User',
-        isOnboarded: false,
-      };
-      
-      setUser(mockUser);
-      localStorage.setItem('user', JSON.stringify(mockUser));
-    } catch (error) {
-      throw new Error('Microsoft login failed. Please try again.');
-    } finally {
-      setIsLoading(false);
-    }
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'microsoft',
+      options: { redirectTo: window.location.origin },
+    });
+    setIsLoading(false);
+    if (error) throw error;
   };
 
   const resetPassword = async (email: string) => {
-    try {
-      // TODO: Replace with actual API call
-      await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate API call
-      console.log('Password reset email sent to:', email);
-    } catch (error) {
-      throw new Error('Failed to send password reset email. Please try again.');
-    }
+    const { data, error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: window.location.origin,
+    });
+    if (error) throw error;
+    console.log('Password reset email sent:', data);
   };
 
   const updateUser = (updates: Partial<User>) => {
     if (user) {
       const updatedUser = { ...user, ...updates };
       setUser(updatedUser);
-      localStorage.setItem('user', JSON.stringify(updatedUser));
     }
   };
 
