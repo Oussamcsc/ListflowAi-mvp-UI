@@ -58,7 +58,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
     initializeAuth();
 
-    const { subscription } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session?.user) {
         const u = session.user;
         setUser({
@@ -134,7 +134,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const loginWithMicrosoft = async () => {
     setIsLoading(true);
     const { error } = await supabase.auth.signInWithOAuth({
-      provider: 'microsoft',
+      provider: 'azure',
       options: { redirectTo: window.location.origin },
     });
     setIsLoading(false);
